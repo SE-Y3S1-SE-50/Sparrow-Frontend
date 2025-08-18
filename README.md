@@ -1,5 +1,6 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
-[`Link: `](https://sparrow-frontend-stpb.vercel.app/)
+
+[`Click here to view the live deployment`](https://sparrow-frontend-stpb.vercel.app/)
 
 ## Getting Started
 
