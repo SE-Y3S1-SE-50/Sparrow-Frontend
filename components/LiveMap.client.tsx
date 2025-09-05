@@ -9,7 +9,7 @@ import {
   useMapEvents,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import L from "leaflet"; // ⬅️ removed `{ map }`
 import { useEffect, useMemo, useState } from "react";
 import supercluster from "supercluster";
 import type { DemoParcel } from "@/data/demoParcels";
@@ -57,6 +57,109 @@ function ViewportSync({
   return null;
 }
 
+/** Renders clusters + parcel markers (has access to Leaflet map via useMap) */
+function ClusterMarkers({
+  clusters,
+  index,
+  selectedId,
+  onSelect,
+}: {
+  clusters: any[];
+  index: supercluster;
+  selectedId: string | null;
+  onSelect?: (id: string) => void;
+}) {
+  const map = useMap();
+
+  return (
+    <>
+      {clusters.map((feat: any) => {
+        const [lng, lat] = feat.geometry.coordinates as [number, number];
+        const { cluster: isCluster, point_count: count } = feat.properties;
+
+        if (isCluster) {
+          const clusterId = feat.id as number;
+          const size = count < 10 ? 30 : count < 50 ? 36 : count < 100 ? 44 : 52;
+
+          const icon = L.divIcon({
+            html: `<div style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:#2b6cb0;color:#fff;font-weight:600;">${count}</div>`,
+            className: "cluster-marker",
+            iconSize: [size, size],
+          });
+
+          return (
+            <Marker
+              key={`cluster-${clusterId}`} // ✅ key
+              position={[lat, lng]}
+              icon={icon}
+              eventHandlers={{
+                click: () => {
+                  const nextZoom = Math.min(
+                    index.getClusterExpansionZoom(clusterId),
+                    18
+                  );
+                  map.setView([lat, lng], nextZoom); // ✅ use map from useMap()
+                },
+              }}
+            />
+          );
+        }
+
+        // Single parcel point
+        const pid = String(feat.properties.parcelId);
+        const code = feat.properties.code as string;
+        const status = feat.properties.status as string;
+        const isSelected = pid === selectedId;
+
+        const icon = L.divIcon({
+          html: `<div style="
+              display:flex;align-items:center;justify-content:center;
+              width:${isSelected ? 22 : 18}px;height:${isSelected ? 22 : 18}px;border-radius:50%;
+              background:${
+                status === "Delivered"
+                  ? "#2f855a"
+                  : status === "In Transit"
+                  ? "#3182ce"
+                  : status === "Processing"
+                  ? "#805ad5"
+                  : status === "Ready"
+                  ? "#d69e2e"
+                  : "#e53e3e"
+              };
+              border:${isSelected ? 3 : 2}px solid #111;"></div>`,
+          className: "parcel-marker",
+          iconSize: [isSelected ? 22 : 18, isSelected ? 22 : 18],
+          iconAnchor: [isSelected ? 11 : 9, isSelected ? 11 : 9],
+          popupAnchor: [0, -10],
+        });
+
+        return (
+          <Marker
+            key={`parcel-${pid}`} // ✅ key
+            position={[lat, lng]}
+            icon={icon}
+            eventHandlers={{
+              click: (e) => {
+                onSelect?.(pid);
+                (e.target as L.Marker).openPopup();
+              },
+            }}
+          >
+            <Popup autoPan keepInView>
+              <div style={{ lineHeight: 1.3 }}>
+                <div>
+                  <b>{code}</b>
+                </div>
+                <div>Status: {status}</div>
+              </div>
+            </Popup>
+          </Marker>
+        );
+      })}
+    </>
+  );
+}
+
 export default function LiveMapClient({
   parcels = [],
   selectedId = null,
@@ -73,7 +176,12 @@ export default function LiveMapClient({
     () =>
       parcels.map((p) => ({
         type: "Feature",
-        properties: { cluster: false, parcelId: p.id, code: p.code, status: p.status },
+        properties: {
+          cluster: false,
+          parcelId: p.id,
+          code: p.code,
+          status: p.status,
+        },
         geometry: { type: "Point", coordinates: [p.lng, p.lat] },
       })),
     [parcels]
@@ -107,84 +215,13 @@ export default function LiveMapClient({
         {/* Keep bounds/zoom in sync with map */}
         <ViewportSync setBounds={setBounds} setZoom={setZoom} />
 
-        {/* Highlight selected marker by size/border */}
-        {clusters.map((feat: any) => {
-          const [lng, lat] = feat.geometry.coordinates;
-          const { cluster: isCluster, point_count: count } = feat.properties;
-
-          if (isCluster) {
-            const size = count < 10 ? 30 : count < 50 ? 36 : count < 100 ? 44 : 52;
-            const icon = L.divIcon({
-              html: `<div style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:#2b6cb0;color:#fff;font-weight:600;">${count}</div>`,
-              className: "cluster-marker",
-              iconSize: [size, size],
-            });
-
-            return (
-              <Marker
-                key={`cluster-${feat.id}`}
-                position={[lat, lng]}
-                icon={icon}
-                eventHandlers={{
-                  click: (e) => {
-                    const m = e.target as L.Marker;
-                    const nextZoom = Math.min(index.getClusterExpansionZoom(feat.id), 18);
-                    m._map?.setView([lat, lng], nextZoom);
-                  },
-                }}
-              />
-            );
-          }
-
-          // Single parcel point
-          const pid = feat.properties.parcelId as string;
-          const code = feat.properties.code as string;
-          const status = feat.properties.status as string;
-          const isSelected = pid === selectedId;
-
-          const icon = L.divIcon({
-            html: `<div style="
-              display:flex;align-items:center;justify-content:center;
-              width:${isSelected ? 22 : 18}px;height:${isSelected ? 22 : 18}px;border-radius:50%;
-              background:${
-                status === "Delivered"
-                  ? "#2f855a"
-                  : status === "In Transit"
-                  ? "#3182ce"
-                  : status === "Processing"
-                  ? "#805ad5"
-                  : status === "Ready"
-                  ? "#d69e2e"
-                  : "#e53e3e"
-              };
-              border:${isSelected ? 3 : 2}px solid #111;"></div>`,
-            className: "parcel-marker",
-            iconSize: [isSelected ? 22 : 18, isSelected ? 22 : 18],
-            iconAnchor: [isSelected ? 11 : 9, isSelected ? 11 : 9],
-            popupAnchor: [0, -10],
-          });
-
-          return (
-            <Marker
-              key={pid}
-              position={[lat, lng]}
-              icon={icon}
-              eventHandlers={{
-                click: (e) => {
-                  onSelect?.(pid);
-                  (e.target as L.Marker).openPopup();
-                },
-              }}
-            >
-              <Popup autoPan keepInView>
-                <div style={{ lineHeight: 1.3 }}>
-                  <div><b>{code}</b></div>
-                  <div>Status: {status}</div>
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
+        {/* Cluster + parcel markers */}
+        <ClusterMarkers
+          clusters={clusters}
+          index={index}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
       </MapContainer>
     </div>
   );
